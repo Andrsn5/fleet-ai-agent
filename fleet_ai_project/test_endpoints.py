@@ -19,8 +19,8 @@ def run_tests():
         print("Testing /vehicles/import...")
         import_payload = [
             {
-                "vin": "VIN123456789",
-                "plate_number": "A123AA77",
+                "vin": "VIN" + str(int(time.time())),
+                "plate_number": "A" + str(int(time.time()))[-4:] + "AA77",
                 "make": "Toyota",
                 "model": "Camry",
                 "year": 2020,
@@ -32,6 +32,8 @@ def run_tests():
             }
         ]
         r = client.post("/vehicles/import", json=import_payload)
+        if r.status_code != 200:
+            print("Import failed with status:", r.status_code, r.text)
         assert r.status_code == 200
         print("Import OK")
 
