@@ -16,3 +16,6 @@ class Vehicle(Base):
     department = Column(String)
     responsible = Column(String)
     driver = Column(String)
+    next_maintenance_date = Column(String)  # Using String for dates in SQLite/MVP for simplicity, can be Date
+    insurance_expiry_date = Column(String)
+    inspection_expiry_date = Column(String)
