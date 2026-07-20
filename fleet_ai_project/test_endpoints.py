@@ -57,10 +57,16 @@ def run_tests():
         print("Repairs Stats OK")
 
         print("Testing /agent/ask...")
-        r = client.post("/agent/ask", json={"query": "How many cars do we have?"})
+        r = client.post("/agent/ask", json={"session_id": "test_session_1", "query": "How many cars do we have?"})
         assert r.status_code == 200
         assert "response" in r.json()
         print("Agent Ask OK")
+
+        print("Testing / (UI)...")
+        r = client.get("/")
+        assert r.status_code == 200
+        assert "text/html" in r.headers.get("content-type", "")
+        print("UI Endpoint OK")
 
         print("Testing /reports/generate...")
         r = client.post("/reports/generate")

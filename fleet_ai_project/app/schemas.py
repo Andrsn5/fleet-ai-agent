@@ -25,6 +25,7 @@ class VehicleResponse(VehicleBase):
         from_attributes = True
 
 class AgentQuery(BaseModel):
+    session_id: str
     query: str
 
 class AgentResponse(BaseModel):

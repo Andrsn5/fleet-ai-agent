@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fleet AI Dashboard</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .container { display: flex; gap: 20px; }
+        .dashboard, .chat { flex: 1; border: 1px solid #ccc; padding: 20px; border-radius: 8px; }
+        .chat-box { height: 300px; overflow-y: scroll; border: 1px solid #eee; padding: 10px; margin-bottom: 10px; }
+        .message { margin-bottom: 10px; }
+        .user-msg { color: blue; }
+        .agent-msg { color: green; }
+    </style>
+</head>
+<body>
+    <h1>Fleet AI Agent</h1>
+
+    <div class="container">
+        <!-- Dashboard Section -->
+        <div class="dashboard">
+            <h2>Dashboard</h2>
+            <button onclick="loadReport()">Refresh Report</button>
+            <div id="report-content" style="margin-top: 20px;">
+                <p>Loading report...</p>
+            </div>
+        </div>
+
+        <!-- Chat Section -->
+        <div class="chat">
+            <h2>Agent Chat</h2>
+            <div>Session ID: <input type="text" id="session-id" value="session-123" /></div>
+            <br>
+            <div class="chat-box" id="chat-box"></div>
+            <input type="text" id="query-input" placeholder="Ask agent..." style="width: 70%;" />
+            <button onclick="askAgent()">Send</button>
+        </div>
+    </div>
+
+    <script>
+        async function loadReport() {
+            try {
+                const response = await fetch('/reports/generate', { method: 'POST' });
+                const data = await response.json();
+                document.getElementById('report-content').innerHTML = `
+                    <p><strong>Total Vehicles:</strong> ${data.total_vehicles}</p>
+                    <p><strong>Upcoming Maintenance:</strong> ${data.upcoming_maintenance_count}</p>
+                    <p><strong>Overdue Events:</strong> ${data.overdue_events_count}</p>
+                    <p><strong>Summary:</strong> ${data.summary}</p>
+                `;
+            } catch (error) {
+                document.getElementById('report-content').innerHTML = `<p style="color:red;">Error loading report</p>`;
+            }
+        }
+
+        async function askAgent() {
+            const query = document.getElementById('query-input').value;
+            const sessionId = document.getElementById('session-id').value;
+            if (!query) return;
+
+            const chatBox = document.getElementById('chat-box');
+            chatBox.innerHTML += `<div class="message user-msg"><b>You:</b> ${query}</div>`;
+            document.getElementById('query-input').value = '';
+
+            try {
+                const response = await fetch('/agent/ask', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ session_id: sessionId, query: query })
+                });
+                const data = await response.json();
+                chatBox.innerHTML += `<div class="message agent-msg"><b>Agent:</b> ${data.response}</div>`;
+                chatBox.scrollTop = chatBox.scrollHeight;
+            } catch (error) {
+                chatBox.innerHTML += `<div class="message" style="color:red;"><b>Error:</b> Could not reach agent.</div>`;
+            }
+        }
+
+        // Load report on start
+        window.onload = loadReport;
+    </script>
+</body>
+</html>

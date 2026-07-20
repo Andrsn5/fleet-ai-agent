@@ -1,6 +1,8 @@
 from fastapi import FastAPI, Depends, HTTPException
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from typing import List
+import os
 
 from . import models, schemas
 from .database import engine, get_db
@@ -8,6 +10,11 @@ from .database import engine, get_db
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Fleet AI Agent API", version="0.1.0")
+
+@app.get("/", include_in_schema=False)
+async def serve_ui():
+    index_path = os.path.join(os.path.dirname(__file__), "index.html")
+    return FileResponse(index_path)
 
 
 @app.post("/vehicles/import", response_model=List[schemas.VehicleResponse])
@@ -78,13 +85,31 @@ async def repairs_statistics(db: Session = Depends(get_db)):
     }
 
 
+# In-memory store for agent sessions
+agent_sessions = {}
+
 @app.post("/agent/ask", response_model=schemas.AgentResponse)
 async def ask_agent(query: schemas.AgentQuery, db: Session = Depends(get_db)):
-    # Mockup of LangChain/LLM response
-    # In a real scenario, this would format data and call an LLM.
+    # In-memory session store logic
+    session_id = query.session_id
+    if session_id not in agent_sessions:
+        agent_sessions[session_id] = []
+
+    # Append user message
+    agent_sessions[session_id].append({"role": "user", "content": query.query})
+
+    # Fetch context from DB
     vehicles = db.query(models.Vehicle).all()
     count = len(vehicles)
-    return {"response": f"You asked: '{query.query}'. We currently have {count} vehicles in the fleet. All systems operational."}
+
+    # Simple Mockup logic, using history
+    history_length = len(agent_sessions[session_id])
+    response_text = f"You asked: '{query.query}'. We have {count} vehicles. (Session: {session_id}, Messages in history: {history_length})"
+
+    # Append agent response
+    agent_sessions[session_id].append({"role": "agent", "content": response_text})
+
+    return {"response": response_text}
 
 
 @app.post("/reports/generate", response_model=schemas.ReportResponse)
