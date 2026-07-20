@@ -1,0 +1,3 @@
+*.pyc
+fleet.db
+.env
