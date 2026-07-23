@@ -10,6 +10,35 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
     restart: unless-stopped
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    restart: always
+
+  celery_worker:
+    build: .
+    command: celery -A app.tasks.celery_app worker --loglevel=info
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - GIGACHAT_CREDENTIALS=${GIGACHAT_CREDENTIALS}
+    depends_on:
+      - redis
+    restart: always
+
+  celery_beat:
+    build: .
+    command: celery -A app.tasks.celery_app beat --loglevel=info
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      - redis
+    restart: always
 
 volumes:
   db_data:

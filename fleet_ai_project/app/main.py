@@ -1,141 +1,181 @@
-from fastapi import FastAPI, Depends, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, Depends, HTTPException, Request
+from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy.orm import Session
+from sqlalchemy import func
+from sqlalchemy.exc import SQLAlchemyError
+from datetime import date, timedelta
 from typing import List
-import os
 
 from . import models, schemas
-from .database import engine, get_db
+from .database import get_db
+from .agent_fixed import ask_agent, generate_manager_report
 
-models.Base.metadata.create_all(bind=engine)
+app = FastAPI(
+    title="Fleet AI Agent API",
+    description="API для контроля технического состояния и обслуживания автопарка",
+    version="1.0.0"
+)
 
-app = FastAPI(title="Fleet AI Agent API", version="0.1.0")
+@app.exception_handler(SQLAlchemyError)
+async def sqlalchemy_exception_handler(request: Request, exc: SQLAlchemyError):
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Ошибка базы данных. Убедитесь, что миграции применены (alembic upgrade head)."}
+    )
 
-@app.get("/", include_in_schema=False)
-async def serve_ui():
-    index_path = os.path.join(os.path.dirname(__file__), "index.html")
-    return FileResponse(index_path)
-
-
-@app.post("/vehicles/import", response_model=List[schemas.VehicleResponse])
-async def import_vehicles(vehicles: List[schemas.VehicleCreate], db: Session = Depends(get_db)):
-    db_vehicles = []
-    for vehicle_data in vehicles:
-        db_vehicle = models.Vehicle(**vehicle_data.model_dump())
-        db.add(db_vehicle)
-        db_vehicles.append(db_vehicle)
+@app.post("/vehicles/import", response_model=dict)
+def import_vehicles(payload: schemas.ImportRequest, db: Session = Depends(get_db)):
+    """
+    Массовая загрузка автомобилей в систему.
+    """
+    imported_count = 0
+    for v_data in payload.vehicles:
+        # Проверяем, существует ли уже авто с таким VIN
+        existing = db.query(models.Vehicle).filter(models.Vehicle.vin == v_data.vin).first()
+        if not existing:
+            new_vehicle = models.Vehicle(**v_data.model_dump())
+            db.add(new_vehicle)
+            imported_count += 1
+    
     db.commit()
-    for db_vehicle in db_vehicles:
-        db.refresh(db_vehicle)
-    return db_vehicles
-
+    return {"status": "success", "imported": imported_count}
 
 @app.get("/vehicles", response_model=List[schemas.VehicleResponse])
-async def list_vehicles(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+def get_vehicles(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+    """
+    Получение списка автомобилей с пагинацией.
+    """
     vehicles = db.query(models.Vehicle).offset(skip).limit(limit).all()
     return vehicles
 
 
-from datetime import datetime, timedelta
-
-@app.get("/maintenance/upcoming", response_model=List[schemas.VehicleResponse])
-async def upcoming_maintenance(db: Session = Depends(get_db)):
-    # Simple mockup: return vehicles with maintenance date in the future but within 30 days
-    # For MVP and string dates (YYYY-MM-DD), doing basic string comparison or python filtering
-    vehicles = db.query(models.Vehicle).all()
-    now = datetime.now()
-    thirty_days_later = now + timedelta(days=30)
-    upcoming = []
-    for v in vehicles:
-        if v.next_maintenance_date:
-            try:
-                m_date = datetime.strptime(v.next_maintenance_date, "%Y-%m-%d")
-                if now <= m_date <= thirty_days_later:
-                    upcoming.append(v)
-            except ValueError:
-                pass
-    return upcoming
-
-
-@app.get("/maintenance/overdue", response_model=List[schemas.VehicleResponse])
-async def overdue_maintenance(db: Session = Depends(get_db)):
-    vehicles = db.query(models.Vehicle).all()
-    now = datetime.now()
-    overdue = []
-    for v in vehicles:
-        if v.next_maintenance_date:
-            try:
-                m_date = datetime.strptime(v.next_maintenance_date, "%Y-%m-%d")
-                if m_date < now:
-                    overdue.append(v)
-            except ValueError:
-                pass
-    return overdue
+@app.get("/maintenance/upcoming", response_model=List[schemas.EventWithVehicleResponse])
+def get_upcoming_maintenance(days_ahead: int = 30, db: Session = Depends(get_db)):
+    """
+    Получение списка ближайших мероприятий (ТО, страховка, техосмотр) на заданное число дней вперед.
+    """
+    today = date.today()
+    future_date = today + timedelta(days=days_ahead)
+    
+    events = db.query(
+        models.Event.id,
+        models.Event.vehicle_id,
+        models.Event.event_type,
+        models.Event.event_date,
+        models.Event.description,
+        models.Event.cost,
+        models.Vehicle.brand.label("vehicle_brand"),
+        models.Vehicle.model.label("vehicle_model"),
+        models.Vehicle.license_plate
+    ).join(models.Vehicle).filter(
+        models.Event.event_date >= today,
+        models.Event.event_date <= future_date,
+        models.Event.event_type.in_(["maintenance", "insurance", "inspection"])
+    ).all()
+    
+    return events
 
 
-@app.get("/repairs/statistics")
-async def repairs_statistics(db: Session = Depends(get_db)):
-    # Mockup for MVP
-    vehicles = db.query(models.Vehicle).all()
-    total_vehicles = len(vehicles)
-    return {
-        "total_vehicles_tracked": total_vehicles,
-        "total_repairs_this_month": 5, # Mock data
-        "most_frequent_issue": "Oil change" # Mock data
-    }
+@app.get("/maintenance/overdue", response_model=List[schemas.EventWithVehicleResponse])
+def get_overdue_maintenance(db: Session = Depends(get_db)):
+    """
+    Получение списка просроченных мероприятий.
+    """
+    today = date.today()
+    
+    events = db.query(
+        models.Event.id,
+        models.Event.vehicle_id,
+        models.Event.event_type,
+        models.Event.event_date,
+        models.Event.description,
+        models.Event.cost,
+        models.Vehicle.brand.label("vehicle_brand"),
+        models.Vehicle.model.label("vehicle_model"),
+        models.Vehicle.license_plate
+    ).join(models.Vehicle).filter(
+        models.Event.event_date < today,
+        models.Event.event_type.in_(["maintenance", "insurance", "inspection"])
+    ).all()
+    
+    return events
 
 
-# In-memory store for agent sessions
-agent_sessions = {}
+@app.get("/repairs/statistics", response_model=List[schemas.RepairStatisticResponse])
+def get_repair_statistics(db: Session = Depends(get_db)):
+    """
+    Статистика ремонтов: группировка затрат и количества ремонтов по каждому автомобилю.
+    """
+    stats = db.query(
+        models.Vehicle.id.label("vehicle_id"),
+        models.Vehicle.brand,
+        models.Vehicle.model,
+        models.Vehicle.license_plate,
+        func.sum(models.Event.cost).label("total_repair_cost"),
+        func.count(models.Event.id).label("repair_count")
+    ).join(models.Event).filter(
+        models.Event.event_type == "repair"
+    ).group_by(models.Vehicle.id).all()
+    
+    result = []
+    for stat in stats:
+        result.append({
+            "vehicle_id": stat.vehicle_id,
+            "brand": stat.brand,
+            "model": stat.model,
+            "license_plate": stat.license_plate,
+            "total_repair_cost": stat.total_repair_cost or 0.0,
+            "repair_count": stat.repair_count
+        })
+    return result
+
 
 @app.post("/agent/ask", response_model=schemas.AgentResponse)
-async def ask_agent(query: schemas.AgentQuery, db: Session = Depends(get_db)):
-    # In-memory session store logic
-    session_id = query.session_id
-    if session_id not in agent_sessions:
-        agent_sessions[session_id] = []
-
-    # Append user message
-    agent_sessions[session_id].append({"role": "user", "content": query.query})
-
-    # Fetch context from DB
-    vehicles = db.query(models.Vehicle).all()
-    count = len(vehicles)
-
-    # Simple Mockup logic, using history
-    history_length = len(agent_sessions[session_id])
-    response_text = f"You asked: '{query.query}'. We have {count} vehicles. (Session: {session_id}, Messages in history: {history_length})"
-
-    # Append agent response
-    agent_sessions[session_id].append({"role": "agent", "content": response_text})
-
-    return {"response": response_text}
-
+def chat_with_ai_agent(payload: schemas.AgentRequest):
+    try:
+        answer = ask_agent(payload.query, payload.session_id)
+        return {"answer": answer}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ошибка работы AI: {str(e)}")
 
 @app.post("/reports/generate", response_model=schemas.ReportResponse)
-async def generate_report(db: Session = Depends(get_db)):
-    vehicles = db.query(models.Vehicle).all()
+def generate_report():
+    """
+    Создание комплексного отчета для руководителя с помощью AI.
+    """
+    try:
+        report_text = generate_manager_report()
+        return {"report": report_text}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ошибка генерации отчета: {str(e)}")
 
-    # Very basic mockup logic for MVP
-    now = datetime.now()
-    thirty_days_later = now + timedelta(days=30)
-    upcoming_count = 0
-    overdue_count = 0
+@app.post("/events", response_model=schemas.EventResponse, tags=["Events"])
+def create_event(payload: schemas.EventCreate, db: Session = Depends(get_db)):
+    """
+    Создание события (ТО, страховка, техосмотр, ремонт) для автомобиля.
+    """
+    event = models.Event(**payload.model_dump())
+    db.add(event)
+    db.commit()
+    db.refresh(event)
+    return event
 
-    for v in vehicles:
-        if v.next_maintenance_date:
-            try:
-                m_date = datetime.strptime(v.next_maintenance_date, "%Y-%m-%d")
-                if now <= m_date <= thirty_days_later:
-                    upcoming_count += 1
-                elif m_date < now:
-                    overdue_count += 1
-            except ValueError:
-                pass
+@app.delete("/vehicles/{vehicle_id}", response_model=dict, tags=["Vehicles"])
+def delete_vehicle(vehicle_id: int, db: Session = Depends(get_db)):
+    """
+    Удаление автомобиля по ID. Каскадно удалятся все связанные события (за счет настроек в models.py).
+    """
+    vehicle = db.query(models.Vehicle).filter(models.Vehicle.id == vehicle_id).first()
+    if not vehicle:
+        raise HTTPException(status_code=404, detail=f"Автомобиль с ID {vehicle_id} не найден")
+    
+    db.delete(vehicle)
+    db.commit()
+    return {"status": "success", "message": f"Автомобиль с ID {vehicle_id} успешно удален"}
 
-    return {
-        "total_vehicles": len(vehicles),
-        "upcoming_maintenance_count": upcoming_count,
-        "overdue_events_count": overdue_count,
-        "summary": "Report generated successfully. Please review the dashboard for detailed metrics."
-    }
+@app.get("/", response_class=FileResponse, tags=["UI"])
+def read_root():
+    """
+    Отдает главную страницу дашборда (MVP интерфейс).
+    """
+    return "app/index.html"

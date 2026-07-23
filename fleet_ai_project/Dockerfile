@@ -9,11 +9,13 @@ COPY requirements.txt .
 # Install dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
+# Copy application code and migration configs
 COPY ./app /app/app
+COPY alembic.ini ./alembic.ini
+COPY alembic ./alembic
 
 # Expose port
 EXPOSE 8000
 
-# Command to run the application
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Apply DB migrations and start API
+CMD ["/bin/sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]

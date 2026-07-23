@@ -1,16 +1,17 @@
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-
 import os
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker, declarative_base
 
-# Create data directory if it doesn't exist
-os.makedirs("./data", exist_ok=True)
-SQLALCHEMY_DATABASE_URL = "sqlite:///./data/fleet.db"
+# Берем URL из .env, если его нет — используем SQLite как фоллбек для локальных тестов
+SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./fleet.db")
 
-engine = create_engine(
-    SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
-)
+# Параметр check_same_thread нужен только для SQLite
+connect_args = {"check_same_thread": False} if "sqlite" in SQLALCHEMY_DATABASE_URL else {}
+
+engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args=connect_args)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+Base = declarative_base()
 
 def get_db():
     db = SessionLocal()

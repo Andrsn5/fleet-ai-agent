@@ -9,3 +9,6 @@ langchain
 langgraph
 qdrant-client
 pydantic
+langchain-gigachat
+python-dotenv
+langchain-community

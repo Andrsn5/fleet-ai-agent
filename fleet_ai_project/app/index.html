@@ -1,84 +1,256 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ru">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Fleet AI Dashboard</title>
+    <title>AI-Агент Автопарка</title>
     <style>
-        body { font-family: Arial, sans-serif; margin: 20px; }
-        .container { display: flex; gap: 20px; }
-        .dashboard, .chat { flex: 1; border: 1px solid #ccc; padding: 20px; border-radius: 8px; }
-        .chat-box { height: 300px; overflow-y: scroll; border: 1px solid #eee; padding: 10px; margin-bottom: 10px; }
-        .message { margin-bottom: 10px; }
-        .user-msg { color: blue; }
-        .agent-msg { color: green; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f3f4f6;
+            margin: 0;
+            padding: 20px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            height: 100vh;
+            box-sizing: border-box;
+        }
+        .panel {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            display: flex;
+            flex-direction: column;
+        }
+        h2 {
+            margin-top: 0;
+            color: #1f2937;
+            border-bottom: 2px solid #e5e7eb;
+            padding-bottom: 10px;
+        }
+        /* Стили для таблицы авто */
+        .table-container {
+            overflow-y: auto;
+            flex-grow: 1;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            text-align: left;
+            padding: 12px;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        th {
+            background-color: #f9fafb;
+            position: sticky;
+            top: 0;
+        }
+        /* Стили для чата */
+        .chat-box {
+            flex-grow: 1;
+            overflow-y: auto;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 15px;
+            background-color: #f9fafb;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .message {
+            padding: 10px 15px;
+            border-radius: 8px;
+            max-width: 80%;
+            line-height: 1.4;
+        }
+        .msg-user {
+            background-color: #2563eb;
+            color: white;
+            align-self: flex-end;
+            border-bottom-right-radius: 0;
+        }
+        .msg-ai {
+            background-color: #e5e7eb;
+            color: #1f2937;
+            align-self: flex-start;
+            border-bottom-left-radius: 0;
+            white-space: pre-wrap; /* Для поддержки Markdown/переносов строк */
+        }
+        .chat-input {
+            display: flex;
+            gap: 10px;
+        }
+        input[type="text"] {
+            flex-grow: 1;
+            padding: 10px;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+        button {
+            background-color: #10b981;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background-color 0.2s;
+        }
+        button:hover {
+            background-color: #059669;
+        }
+        button:disabled {
+            background-color: #9ca3af;
+            cursor: not-allowed;
+        }
     </style>
 </head>
 <body>
-    <h1>Fleet AI Agent</h1>
 
-    <div class="container">
-        <!-- Dashboard Section -->
-        <div class="dashboard">
-            <h2>Dashboard</h2>
-            <button onclick="loadReport()">Refresh Report</button>
-            <div id="report-content" style="margin-top: 20px;">
-                <p>Loading report...</p>
-            </div>
+    <!-- Панель со списком автомобилей -->
+    <div class="panel">
+        <h2>Состояние автопарка</h2>
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Марка/Модель</th>
+                        <th>Госномер</th>
+                        <th>Пробег (км)</th>
+                        <th>Отдел</th>
+                    </tr>
+                </thead>
+                <tbody id="vehicles-table-body">
+                    <tr><td colspan="4" style="text-align: center;">Загрузка данных...</td></tr>
+                </tbody>
+            </table>
         </div>
+    </div>
 
-        <!-- Chat Section -->
-        <div class="chat">
-            <h2>Agent Chat</h2>
-            <div>Session ID: <input type="text" id="session-id" value="session-123" /></div>
-            <br>
-            <div class="chat-box" id="chat-box"></div>
-            <input type="text" id="query-input" placeholder="Ask agent..." style="width: 70%;" />
-            <button onclick="askAgent()">Send</button>
+    <!-- Панель AI-Чата -->
+    <div class="panel">
+        <h2>Чат с AI-Агентом</h2>
+        <div class="chat-box" id="chat-box">
+            <div class="message msg-ai">Привет! Я AI-агент твоего автопарка. Можешь спросить меня о ближайших ТО, просроченных страховках или попросить сгенерировать отчет.</div>
+        </div>
+        <div class="chat-input">
+            <input type="text" id="chat-input" placeholder="Введите ваш запрос..." onkeypress="handleKeyPress(event)">
+            <button id="send-btn" onclick="askAgent()">Отправить</button>
+            <button onclick="generateReport()" style="background-color: #6366f1;">Отчет</button>
         </div>
     </div>
 
     <script>
-        async function loadReport() {
+        // Функция загрузки списка автомобилей
+        async function loadVehicles() {
             try {
-                const response = await fetch('/reports/generate', { method: 'POST' });
-                const data = await response.json();
-                document.getElementById('report-content').innerHTML = `
-                    <p><strong>Total Vehicles:</strong> ${data.total_vehicles}</p>
-                    <p><strong>Upcoming Maintenance:</strong> ${data.upcoming_maintenance_count}</p>
-                    <p><strong>Overdue Events:</strong> ${data.overdue_events_count}</p>
-                    <p><strong>Summary:</strong> ${data.summary}</p>
-                `;
+                const response = await fetch('/vehicles');
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                const vehicles = await response.json();
+                const tbody = document.getElementById('vehicles-table-body');
+                tbody.innerHTML = '';
+                
+                if (vehicles.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="4" style="text-align: center;">Автопарк пуст.</td></tr>';
+                    return;
+                }
+
+                vehicles.forEach(v => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td>${v.brand} ${v.model}</td>
+                        <td><strong>${v.license_plate}</strong></td>
+                        <td>${v.mileage}</td>
+                        <td>${v.department}</td>
+                    `;
+                    tbody.appendChild(tr);
+                });
             } catch (error) {
-                document.getElementById('report-content').innerHTML = `<p style="color:red;">Error loading report</p>`;
+                console.error('Ошибка загрузки авто:', error);
+                const tbody = document.getElementById('vehicles-table-body');
+                if (tbody) {
+                    tbody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: #dc2626;">Ошибка загрузки данных: ${error.message}</td></tr>`;
+                }
             }
         }
 
+        // Функция добавления сообщения в интерфейс чата
+        function appendMessage(text, sender) {
+            const chatBox = document.getElementById('chat-box');
+            const msgDiv = document.createElement('div');
+            msgDiv.classList.add('message', sender === 'user' ? 'msg-user' : 'msg-ai');
+            msgDiv.textContent = text;
+            chatBox.appendChild(msgDiv);
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        // Обработка нажатия Enter
+        function handleKeyPress(event) {
+            if (event.key === 'Enter') {
+                askAgent();
+            }
+        }
+
+        // Отправка запроса AI-агенту
         async function askAgent() {
-            const query = document.getElementById('query-input').value;
-            const sessionId = document.getElementById('session-id').value;
+            const inputElement = document.getElementById('chat-input');
+            const btnElement = document.getElementById('send-btn');
+            const query = inputElement.value.trim();
+            
             if (!query) return;
 
-            const chatBox = document.getElementById('chat-box');
-            chatBox.innerHTML += `<div class="message user-msg"><b>You:</b> ${query}</div>`;
-            document.getElementById('query-input').value = '';
+            // Блокируем интерфейс
+            appendMessage(query, 'user');
+            inputElement.value = '';
+            inputElement.disabled = true;
+            btnElement.disabled = true;
 
             try {
                 const response = await fetch('/agent/ask', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ session_id: sessionId, query: query })
+                    body: JSON.stringify({ query: query })
                 });
                 const data = await response.json();
-                chatBox.innerHTML += `<div class="message agent-msg"><b>Agent:</b> ${data.response}</div>`;
-                chatBox.scrollTop = chatBox.scrollHeight;
+                appendMessage(data.answer, 'ai');
             } catch (error) {
-                chatBox.innerHTML += `<div class="message" style="color:red;"><b>Error:</b> Could not reach agent.</div>`;
+                appendMessage('Произошла ошибка при связи с агентом.', 'ai');
+            } finally {
+                // Разблокируем интерфейс
+                inputElement.disabled = false;
+                btnElement.disabled = false;
+                inputElement.focus();
             }
         }
 
-        // Load report on start
-        window.onload = loadReport;
+        // Быстрый запрос управленческого отчета
+        async function generateReport() {
+            appendMessage('Сгенерируй управленческий отчет по автопарку.', 'user');
+            
+            const btnElements = document.querySelectorAll('button');
+            btnElements.forEach(b => b.disabled = true);
+
+            try {
+                const response = await fetch('/reports/generate', { method: 'POST' });
+                const data = await response.json();
+                appendMessage(data.report, 'ai');
+            } catch (error) {
+                appendMessage('Произошла ошибка при генерации отчета.', 'ai');
+            } finally {
+                btnElements.forEach(b => b.disabled = false);
+            }
+        }
+
+        // Инициализация при загрузке страницы
+        window.onload = loadVehicles;
     </script>
 </body>
 </html>
