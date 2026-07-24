@@ -2,8 +2,7 @@ import os
 from datetime import date, timedelta
 
 from langchain_core.tools import tool
-from langchain_core.chat_history import BaseChatMessageHistory
-from langchain_community.chat_message_histories import ChatMessageHistory
+from langchain_core.chat_history import InMemoryChatMessageHistory
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from .database import SessionLocal
 from . import models
@@ -57,7 +56,7 @@ try:
     from langchain_core.prompts import ChatPromptTemplate
 
     llm = GigaChat(
-        credentials=os.getenv("GIGACHAT_CREDENTIALS", "твой_ключ_здесь"), 
+        credentials=os.getenv("GIGACHAT_CREDENTIALS"), 
         verify_ssl_certs=False,
         scope="GIGACHAT_API_PERS"
     )
@@ -73,13 +72,15 @@ try:
     ])
 
     agent = create_tool_calling_agent(llm, tools, prompt)
-    agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
+    # ВАЖНО: verbose=False спасает от ошибки 'ascii' codec на Windows
+    agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=False)
 
-    store = {}
+    # In-memory хранилище сессий
+store = {}
 
-    def get_session_history(session_id: str) -> BaseChatMessageHistory:
+    def get_session_history(session_id: str):
         if session_id not in store:
-            store[session_id] = ChatMessageHistory()
+            store[session_id] = InMemoryChatMessageHistory()
         return store[session_id]
 
     agent_with_history = RunnableWithMessageHistory(

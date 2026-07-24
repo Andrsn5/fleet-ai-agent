@@ -12,3 +12,4 @@ pydantic
 langchain-gigachat
 python-dotenv
 langchain-community
+python-dotenv

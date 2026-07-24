@@ -147,6 +147,9 @@
     </div>
 
     <script>
+        // Генерируем уникальную сессию для текущей вкладки
+        const currentSessionId = "session_" + Math.random().toString(36).substring(2, 9);
+
         // Функция загрузки списка автомобилей
         async function loadVehicles() {
             try {
@@ -207,7 +210,6 @@
             
             if (!query) return;
 
-            // Блокируем интерфейс
             appendMessage(query, 'user');
             inputElement.value = '';
             inputElement.disabled = true;
@@ -217,14 +219,14 @@
                 const response = await fetch('/agent/ask', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ query: query })
+                    // Добавили session_id в запрос
+                    body: JSON.stringify({ query: query, session_id: currentSessionId })
                 });
                 const data = await response.json();
                 appendMessage(data.answer, 'ai');
             } catch (error) {
                 appendMessage('Произошла ошибка при связи с агентом.', 'ai');
             } finally {
-                // Разблокируем интерфейс
                 inputElement.disabled = false;
                 btnElement.disabled = false;
                 inputElement.focus();

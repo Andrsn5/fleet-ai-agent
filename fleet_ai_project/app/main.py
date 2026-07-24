@@ -1,3 +1,9 @@
+import sys
+
+if sys.platform.startswith('win'):
+    sys.stdout.reconfigure(encoding='utf-8')
+    sys.stderr.reconfigure(encoding='utf-8')
+
 from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy.orm import Session
@@ -130,12 +136,15 @@ def get_repair_statistics(db: Session = Depends(get_db)):
     return result
 
 
-@app.post("/agent/ask", response_model=schemas.AgentResponse)
+@app.post("/agent/ask", response_model=schemas.AgentResponse, tags=["AI Agent"])
 def chat_with_ai_agent(payload: schemas.AgentRequest):
+    """Произвольный запрос к AI-агенту."""
     try:
         answer = ask_agent(payload.query, payload.session_id)
         return {"answer": answer}
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Ошибка работы AI: {str(e)}")
 
 @app.post("/reports/generate", response_model=schemas.ReportResponse)
